@@ -10,6 +10,7 @@ A self-contained, interactive engineering project that models a **serial manufac
 
 ## Highlights
 
+- **Calculate button:** edit operating conditions and machine-stage inputs first, then click **🧮 Calculate** to commit a validated scenario and refresh the results. Until clicked again, the dashboard continues displaying the previous calculated scenario with a warning if inputs change.
 - **Editable manufacturing line:** up to six consecutive stages, each with 1–20 identical parallel machines, cycle time, availability, good-part yield, operating power, and idle power.
 - **Line-wide production model:** calculates yield-adjusted capacity, bottleneck, stage input flow, expected scraps, machine utilization, and good-unit production.
 - **Energy and carbon accounting:** daily operating + idle electricity; emissions from a configurable grid factor; electricity costs from a configurable tariff.
@@ -42,6 +43,26 @@ to the selected display currency, **not verified local electricity tariffs**.
 For a local tariff, first convert it to its USD/kWh equivalent using the
 currently shown reference rate. JSON exports include the tariff assumption,
 rate table, FX source, currency and update date for auditability.
+
+## Using the Calculate button
+
+1. Choose the operating conditions in the sidebar (hours, demand, currency,
+   USD reference electricity tariff, emissions factor), then edit the stage table.
+2. Click the blue **🧮 Calculate** button directly beneath the manufacturing
+   input table to validate and apply these settings.
+3. Review the baseline, optimization, demand sensitivity, and operating-hours
+   results. The **Optimize** tab's goal and constraint controls can still be
+   varied interactively for the last calculated manufacturing inputs.
+4. If you change sidebar settings or machine-stage inputs again, the dashboard
+   **continues to display the last calculated scenario** and presents a warning
+   rather than silently recalculating. Click **Calculate** again to apply changes.
+5. Downloaded reports and the "last calculated line" CSV use the committed
+   scenario, not unsaved input edits. The FX snapshot also stays consistent
+   with the committed scenario until recalculation.
+
+A fresh session displays the input editor first; calculations only appear after
+you click **Calculate**. Invalid inputs result in an explicit error rather
+than updating the saved scenario.
 
 ## 1. Launch locally
 

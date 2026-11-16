@@ -154,7 +154,7 @@ with st.sidebar:
     fx_rates = cached_exchange_rates()
     tariff = tariff_in_currency(float(usd_tariff), currency, fx_rates)
     st.caption(
-        f"Converted tariff: {format_money(tariff, currency, 4)}/kWh · "
+        f"Preview converted tariff: {format_money(tariff, currency, 4)}/kWh · "
         f"1 USD = {format_money(fx_rates.per_usd[currency], currency, 4)}"
     )
     if fx_rates.fallback:
@@ -213,16 +213,76 @@ line_table = st.data_editor(
 )
 st.caption("Availability = fraction of scheduled hours when machines are operable. Good yield = share of parts that pass a stage. Power values are per machine.")
 
-try:
-    stages = parse_stages(line_table)
-    conditions = OperatingConditions(
-        shift_hours=float(shift_hours), demand_units=float(demand),
-        electricity_tariff=float(tariff), emission_factor=float(factor),
-    )
-    baseline = simulate_line(stages, conditions)
-except ValueError as exc:
-    st.error(f"Please correct the model inputs: {exc}")
+# The input widgets are editable drafts. Only the Calculate button commits
+# a complete, validated snapshot for the dashboard and optimizer.
+# This prevents reruns from silently changing results midway through editing.
+draft_signature = (
+    line_table.to_json(orient="split"),
+    float(shift_hours),
+    float(demand),
+    float(usd_tariff),
+    float(factor),
+    currency,
+    fx_rates.as_of,
+    tuple(sorted(fx_rates.per_usd.items())),
+)
+
+st.caption(
+    "Edit the manufacturing line and operating conditions, then click "
+    "**Calculate** to apply your inputs to every results tab."
+)
+calculate_clicked = st.button(
+    "🧮 Calculate", type="primary", use_container_width=True,
+    help="Validate the current inputs and refresh the baseline, optimization, sensitivity, and planning results.",
+    key="sustainfab_calculate",
+)
+
+if calculate_clicked:
+    try:
+        calculated_stages = parse_stages(line_table)
+        calculated_conditions = OperatingConditions(
+            shift_hours=float(shift_hours),
+            demand_units=float(demand),
+            electricity_tariff=float(tariff),
+            emission_factor=float(factor),
+        )
+        calculated_baseline = simulate_line(calculated_stages, calculated_conditions)
+    except ValueError as exc:
+        st.error(f"Please correct the model inputs: {exc}")
+        st.stop()
+
+    st.session_state["sustainfab_calculated_snapshot"] = {
+        "signature": draft_signature,
+        "stages": calculated_stages,
+        "conditions": calculated_conditions,
+        "baseline": calculated_baseline,
+        "currency": currency,
+        "usd_tariff": float(usd_tariff),
+        "fx_rates": fx_rates,
+        "line_table": line_table.copy(deep=True),
+    }
+    st.success("Calculation complete. Results below reflect your submitted inputs.")
+
+snapshot = st.session_state.get("sustainfab_calculated_snapshot")
+if snapshot is None:
+    st.info("Enter or edit the production parameters above, then click **🧮 Calculate** to view results.")
     st.stop()
+
+if snapshot["signature"] != draft_signature:
+    st.warning(
+        "You have uncalculated input changes. The results below still use your "
+        "**last calculated settings**. Click **Calculate** to apply the new inputs."
+    )
+
+# All result tabs and downloadable reports use this same committed snapshot.
+# Current edits remain in their widgets until the next Calculate click.
+stages = snapshot["stages"]
+conditions = snapshot["conditions"]
+baseline = snapshot["baseline"]
+currency = snapshot["currency"]
+usd_tariff = snapshot["usd_tariff"]
+fx_rates = snapshot["fx_rates"]
+line_table = snapshot["line_table"]
 
 overview, optimization, sensitivity, shift_planner, methodology = st.tabs(
     ["📊 Production overview", "⚙️ Optimize", "📈 Sensitivity", "🗓️ Shift-hour planning", "📖 Method & downloads"]
@@ -504,6 +564,6 @@ with methodology:
         """
     ))
     st.markdown("#### Export the edited input line")
-    st.download_button("Download current line (CSV)", line_table.to_csv(index=False),
+    st.download_button("Download last calculated line (CSV)", line_table.to_csv(index=False),
                        "sustainfab_current_line.csv", "text/csv")
     st.caption("Reproducible tests, derivations, and application/deployment instructions are included in the GitHub repository.")
