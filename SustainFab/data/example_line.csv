@@ -1,0 +1,5 @@
+Stage,Machines,Cycle time (min/unit),Availability (%),Good yield (%),Run power (kW),Idle power (kW)
+Cutting,2,2.4,94,98,7,1.2
+Machining,3,3.6,90,97,11,2
+Assembly,2,2,92,99,4,0.9
+Inspection,1,1,97,99.5,2,0.35
