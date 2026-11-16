@@ -209,7 +209,7 @@ overview, optimization, sensitivity, shift_planner, methodology = st.tabs(
 with overview:
     st.subheader("02 · Baseline performance")
     top1, top2, top3 = st.columns(3)
-    top1.metric("Good output", f"{baseline.good_units:,.1f} units/day")
+    top1.metric("Good output (units/day)", f"{baseline.good_units:,.1f}")
     top2.metric("Demand satisfied", f"{baseline.fulfillment_pct:.1f}%")
     top3.metric("Bottleneck stage", baseline.bottleneck_stage)
     bottom1, bottom2, bottom3 = st.columns(3)
@@ -282,7 +282,7 @@ with optimization:
 
     result = optimum.simulation
     a, b, c = st.columns(3)
-    a.metric("Selected good output", f"{result.good_units:,.1f} units/day",
+    a.metric("Selected output (units/day)", f"{result.good_units:,.1f}",
              delta=f"{result.good_units - baseline.good_units:+,.1f} vs baseline")
     b.metric("Selected energy", f"{result.total_energy_kwh:,.1f} kWh/day",
              delta=f"{result.total_energy_kwh - baseline.total_energy_kwh:+,.1f} kWh",
