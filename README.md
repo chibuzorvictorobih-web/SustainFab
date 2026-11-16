@@ -71,6 +71,13 @@ SustainFab also offers four integrated features in the **Advanced analyses**
 tab, based on the most recently submitted **Calculate** snapshot and the
 currently chosen optimization scenario.
 
+- **Currency-aware investment inputs:** machine purchase cost, maintenance
+  expense and per-good-unit contribution margin are entered **in the selected
+  display currency** (USD $, EUR €, GBP £ or NGN ₦). When the calculated
+  currency changes, the inputs are converted from stored canonical USD values
+  rather than silently relabelled. Calculations use USD internally and results,
+  JSON exports and PDF investment estimates are displayed in the selected
+  currency. The FX rate date is shown and embedded in the exports.
 - **Investment appraisal:** incremental new-machine purchase and installation
   expense, additional machine maintenance, production-related contribution
   margin, electricity expense, simple payback, and discounted NPV. Removed

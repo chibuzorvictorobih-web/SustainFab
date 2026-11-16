@@ -98,3 +98,27 @@ def format_money(amount: float, currency: str, digits: int = 2) -> str:
     if digits not in (2, 4):
         raise ValueError("Only two or four decimal places are supported.")
     return f"{SYMBOLS[currency]}{amount:,.{digits}f}"
+
+
+def usd_to_selected(amount_usd: float, quote: str, rates: ExchangeRates) -> float:
+    """Convert a monetary USD amount to the chosen display currency."""
+    if quote not in SYMBOLS:
+        raise ValueError("Unsupported currency.")
+    if not math.isfinite(amount_usd) or amount_usd < 0:
+        raise ValueError("Amount must be finite and nonnegative.")
+    rate = float(rates.per_usd[quote])
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError("Reference exchange rate must be positive and finite.")
+    return amount_usd * rate
+
+
+def selected_to_usd(amount_selected: float, quote: str, rates: ExchangeRates) -> float:
+    """Convert a selected-currency monetary amount back to canonical USD."""
+    if quote not in SYMBOLS:
+        raise ValueError("Unsupported currency.")
+    if not math.isfinite(amount_selected) or amount_selected < 0:
+        raise ValueError("Amount must be finite and nonnegative.")
+    rate = float(rates.per_usd[quote])
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError("Reference exchange rate must be positive and finite.")
+    return amount_selected / rate

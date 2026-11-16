@@ -86,9 +86,9 @@ def build_pdf_report(
                if economics.simple_payback_years is not None else "not applicable")
     story.append(Paragraph(
         f"Additional machines: {economics.added_machines}; incremental investment: "
-        f"USD {economics.investment_usd:,.2f}; annual net benefit: "
-        f"USD {economics.annual_net_benefit_usd:,.2f}; "
-        f"NPV: USD {economics.npv_usd:,.2f}; simple payback: {payback}.", styles["Normal"]))
+        f"{currency} {economics.investment_usd * usd_to_currency:,.2f}; annual net benefit: "
+        f"{currency} {economics.annual_net_benefit_usd * usd_to_currency:,.2f}; "
+        f"NPV: {currency} {economics.npv_usd * usd_to_currency:,.2f}; simple payback: {payback}.", styles["Normal"]))
     story.append(Paragraph(assumptions_description, styles["SFSmall"]))
     header("4. Material inputs and scrap")
     comparison([

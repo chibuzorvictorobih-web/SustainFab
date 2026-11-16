@@ -17,7 +17,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from sustainfab.model import OperatingConditions, Stage, simulate_line
-from sustainfab.currency import format_money, get_usd_exchange_rates, tariff_in_currency
+from sustainfab.currency import (SYMBOLS, format_money, get_usd_exchange_rates, tariff_in_currency,
+                                 usd_to_selected, selected_to_usd)
 from sustainfab.planning import required_shift_hours
 from sustainfab.advanced import (
     MaterialAssumptions, assess_materials, evaluate_economics,
@@ -574,6 +575,48 @@ with methodology:
                        "sustainfab_current_line.csv", "text/csv")
     st.caption("Reproducible tests, derivations, and application/deployment instructions are included in the GitHub repository.")
 
+def investment_amount_input(
+    description: str, identifier: str, default_usd: float,
+    currency: str, rates, step_usd: float, limit_usd: float,
+) -> tuple[float, float]:
+    """Enter a monetary assumption in the display currency, store USD internally.
+
+    Each currency/rate has its own widget identity. A canonical USD value is
+    synchronized on changes, so switching currencies cannot silently relabel
+    an old input or reset financial assumptions to arbitrary defaults.
+    """
+    base_key = f"sustainfab_investment_usd_{identifier}"
+    active_key = f"sustainfab_investment_active_{identifier}"
+    rate = float(rates.per_usd[currency])
+    widget_key = f"sf_invest_{identifier}_{currency}_{rate:.10f}"
+    if base_key not in st.session_state:
+        st.session_state[base_key] = float(default_usd)
+    if st.session_state.get(active_key) != widget_key:
+        st.session_state[widget_key] = round(
+            usd_to_selected(st.session_state[base_key], currency, rates), 2
+        )
+        st.session_state[active_key] = widget_key
+
+    def update_usd_reference():
+        st.session_state[base_key] = selected_to_usd(
+            st.session_state[widget_key], currency, rates
+        )
+
+    value = st.number_input(
+        f"{description} ({SYMBOLS[currency]} {currency})",
+        min_value=0.0,
+        max_value=float(limit_usd * rate),
+        step=float(max(.01, round(step_usd * rate, 2))),
+        format="%.2f",
+        key=widget_key,
+        on_change=update_usd_reference,
+        help=f"Enter the amount in {currency}; calculation converts to USD using the displayed FX reference.",
+    )
+    # Converting the visible numeric value directly guarantees a matching
+    # result even in the initial run before the first on_change callback.
+    return selected_to_usd(value, currency, rates), float(value)
+
+
 with advanced_tab:
     st.subheader("07 · Advanced sustainability and investment analyses")
     st.caption(
@@ -600,24 +643,31 @@ with advanced_tab:
             "expense counts only additional machines; no salvage value is assumed. "
             "Contribution margin must exclude electricity and the maintenance below."
         )
+        rate = float(fx_rates.per_usd[currency])
+        st.caption(
+            f"Investment inputs and results use {SYMBOLS[currency]} ({currency}). "
+            f"Reference rate: 1 USD = {format_money(rate, currency, 4)} "
+            f"(updated {fx_rates.as_of}). Amounts are converted to USD "
+            "internally for consistent financial analysis."
+        )
         e1, e2, e3 = st.columns(3)
         with e1:
-            machine_capex = st.number_input(
-                "Purchase cost per additional machine (USD)", 0.0, 100000000.0,
-                12000.0, 500.0, key="adv_machine_capex"
+            machine_capex, machine_capex_local = investment_amount_input(
+                "Purchase cost per additional machine", "machine_capex",
+                12000.0, currency, fx_rates, 500.0, 100000000.0
             )
-            margin_per_unit = st.number_input(
-                "Contribution margin per good unit (USD)", 0.0, 1000000.0,
-                5.0, 0.5, key="adv_contribution"
+            margin_per_unit, margin_per_unit_local = investment_amount_input(
+                "Contribution margin per good unit", "contribution",
+                5.0, currency, fx_rates, .5, 1000000.0
             )
         with e2:
             install_pct = st.number_input(
                 "Installation cost (% of machine purchase price)", 0.0, 300.0,
                 10.0, 1.0, key="adv_install"
             )
-            annual_maint = st.number_input(
-                "Maintenance cost per machine (USD/year)", 0.0, 100000000.0,
-                500.0, 50.0, key="adv_maintenance"
+            annual_maint, annual_maint_local = investment_amount_input(
+                "Maintenance cost per machine per year", "maintenance",
+                500.0, currency, fx_rates, 50.0, 100000000.0
             )
         with e3:
             operating_days = st.number_input(
@@ -641,7 +691,6 @@ with advanced_tab:
             analysis_years=int(horizon),
             discount_rate=discount_pct / 100,
         )
-        rate = fx_rates.per_usd[currency]
         ec1, ec2, ec3 = st.columns(3)
         ec1.metric("Additional machine investment",
                    format_money(economic.investment_usd * rate, currency))
@@ -820,9 +869,11 @@ with advanced_tab:
             "and modelling limitations."
         )
         assumptions_text = (
-            f"Illustrative assumptions: USD {machine_capex:,.0f} per new machine; "
-            f"{install_pct:.1f}% installation; USD {annual_maint:,.0f}/machine/year "
-            f"maintenance; USD {margin_per_unit:.2f}/unit contribution margin; "
+            f"Illustrative assumptions in {currency}: "
+            f"{currency} {machine_capex_local:,.2f} per new machine; "
+            f"{install_pct:.1f}% installation; "
+            f"{currency} {annual_maint_local:,.2f}/machine/year maintenance; "
+            f"{currency} {margin_per_unit_local:,.2f}/unit contribution margin; "
             f"{operating_days} days/year; {horizon} years; "
             f"{discount_pct:.1f}% discount rate."
         )
@@ -848,7 +899,26 @@ with advanced_tab:
             "note": "Illustrative assumed inputs; not calibrated industrial findings.",
             "baseline": asdict(baseline), "selected": asdict(result),
             "economic_assumptions": assumptions_text,
+            "investment_input_currency": currency,
+            "investment_inputs_display_currency": {
+                "purchase_per_machine": machine_capex_local,
+                "annual_maintenance_per_machine": annual_maint_local,
+                "margin_per_good_unit": margin_per_unit_local,
+            },
+            "investment_inputs_usd": {
+                "purchase_per_machine": machine_capex,
+                "annual_maintenance_per_machine": annual_maint,
+                "margin_per_good_unit": margin_per_unit,
+            },
             "economic_results_usd": asdict(economic),
+            "economic_results_display_currency": {
+                "currency": currency,
+                "investment": economic.investment_usd * rate,
+                "annual_net_benefit": economic.annual_net_benefit_usd * rate,
+                "npv": economic.npv_usd * rate,
+                "annual_electricity_delta": economic.annual_electricity_delta_usd * rate,
+                "annual_maintenance_delta": economic.annual_maintenance_delta_usd * rate,
+            },
             "material_assumptions": asdict(material_assumptions),
             "baseline_material": asdict(material_base),
             "selected_material": asdict(material_selected),
