@@ -31,6 +31,24 @@ python -m pytest -q
 
 **21 automated tests passed** in the packaged verification run. This number may change if the tests are expanded. The included GitHub Actions workflow also runs the test suite when code is pushed or updated.
 
+## Advanced-analysis verification
+
+- Incremental investment uses added-machine counts, purchase and installation
+  assumptions, annual contribution margin, change in electricity cost, and
+  change in equipment maintenance cost. NPV and payback are tested against
+  independent arithmetic, including invalid inputs.
+- Material mass balance checks first-stage input flow, expected scrap mass,
+  recoverable mass, and a bounded illustrative recycling credit.
+- Monte Carlo sampling is reproducible given a seed. With zero parameter
+  variability it returns the deterministic model's throughput. Invalid
+  sampling ranges are rejected.
+- The PDF case report is smoke-tested for successful generation and a valid
+  PDF file header; visual presentation still requires review in the deployed app.
+
+The stochastic model represents *parameter uncertainty* conditional on
+assumed distributions. It does not implement a dynamic failure-repair process
+or establish real-world output probabilities.
+
 ## Known limitations
 
 - No statistical process-variation or uncertainty model; yields and uptime are treated as average fractions.

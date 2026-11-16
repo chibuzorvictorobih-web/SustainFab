@@ -64,6 +64,46 @@ A fresh session displays the input editor first; calculations only appear after
 you click **Calculate**. Invalid inputs result in an explicit error rather
 than updating the saved scenario.
 
+
+## Advanced sustainability analyses
+
+SustainFab also offers four integrated features in the **Advanced analyses**
+tab, based on the most recently submitted **Calculate** snapshot and the
+currently chosen optimization scenario.
+
+- **Investment appraisal:** incremental new-machine purchase and installation
+  expense, additional machine maintenance, production-related contribution
+  margin, electricity expense, simple payback, and discounted NPV. Removed
+  machines have no speculative salvage value. Financial defaults are wholly
+  **illustrative**, not real equipment quotes or business forecasts.
+- **Materials and embodied emissions:** mass balance based on a constant
+  part mass through the production line, expected scrap, potentially
+  recoverable mass, and an optional *hypothetical* recycling displacement
+  credit. This is **not** a full lifecycle assessment.
+- **Monte Carlo throughput:** seeded daily draws with independently sampled
+  normal variation in machine availability, stage cycle time, and yield,
+  clipped to physically valid ranges. Report mean output, 5th and 95th
+  percentiles, and the fraction of modelled scenarios that reach the chosen
+  production threshold. Probabilities are **conditional on user assumptions**,
+  not measured reliability forecasts or confidence intervals for a plant.
+- **PDF case-study report:** downloads a structured report with deterministic
+  production and energy comparison charts, financial indicators, materials
+  assessment, uncertainty results, FX rate context, and caveats. A
+  reproducible advanced-results JSON export is also available.
+
+The **Calculate** button controls manufacturing conditions. The advanced
+analysis widgets adjust assumptions about the currently calculated manufacturing
+configuration; changing the original manufacturing editor or sidebar inputs
+still requires a fresh Calculate click.
+
+**Engineering interpretation:** Additional equipment may increase throughput
+but also entails capital expense and annual maintenance. A scenario with lower
+energy per unit is not necessarily cheaper or lower in total environmental
+impact. The provided case studies are synthetic; users must replace all
+financial, material, emissions, and stochastic inputs with justified measured
+values before decisions.
+
+
 ## 1. Launch locally
 
 Prerequisites: Python 3.11 or 3.12.

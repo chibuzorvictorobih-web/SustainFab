@@ -19,6 +19,11 @@ import streamlit as st
 from sustainfab.model import OperatingConditions, Stage, simulate_line
 from sustainfab.currency import format_money, get_usd_exchange_rates, tariff_in_currency
 from sustainfab.planning import required_shift_hours
+from sustainfab.advanced import (
+    MaterialAssumptions, assess_materials, evaluate_economics,
+    monte_carlo_throughput,
+)
+from sustainfab.report import build_pdf_report
 from sustainfab.optimizer import StageChoice, apply_choices, optimize_line
 
 ROOT = Path(__file__).resolve().parent
@@ -284,8 +289,9 @@ usd_tariff = snapshot["usd_tariff"]
 fx_rates = snapshot["fx_rates"]
 line_table = snapshot["line_table"]
 
-overview, optimization, sensitivity, shift_planner, methodology = st.tabs(
-    ["📊 Production overview", "⚙️ Optimize", "📈 Sensitivity", "🗓️ Shift-hour planning", "📖 Method & downloads"]
+overview, optimization, sensitivity, shift_planner, methodology, advanced_tab = st.tabs(
+    ["📊 Production overview", "⚙️ Optimize", "📈 Sensitivity",
+     "🗓️ Shift-hour planning", "📖 Method & downloads", "🔬 Advanced analyses"]
 )
 
 with overview:
@@ -567,3 +573,307 @@ with methodology:
     st.download_button("Download last calculated line (CSV)", line_table.to_csv(index=False),
                        "sustainfab_current_line.csv", "text/csv")
     st.caption("Reproducible tests, derivations, and application/deployment instructions are included in the GitHub repository.")
+
+with advanced_tab:
+    st.subheader("07 · Advanced sustainability and investment analyses")
+    st.caption(
+        "Educational scenario screening only. All costs, material factors and "
+        "uncertainty ranges below are editable **illustrative assumptions**, not measured factory data."
+    )
+    if not optimum.feasible:
+        st.warning(
+            "The optimization constraint is infeasible. Advanced comparisons "
+            "use the optimizer's labelled best-effort scenario, not a feasible recommendation."
+        )
+
+    configured = apply_choices(stages, optimum.choices)
+    selected_modes = tuple(choice.speed_mode for choice in optimum.choices)
+    econ_tab, material_tab, risk_tab, report_tab = st.tabs(
+        ["💰 Investment", "♻️ Materials and carbon",
+         "🎲 Uncertainty", "📄 Case-study report"]
+    )
+
+    with econ_tab:
+        st.markdown("#### Incremental techno-economic comparison")
+        st.caption(
+            "Compare selected equipment against the existing baseline. Capital "
+            "expense counts only additional machines; no salvage value is assumed. "
+            "Contribution margin must exclude electricity and the maintenance below."
+        )
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            machine_capex = st.number_input(
+                "Purchase cost per additional machine (USD)", 0.0, 100000000.0,
+                12000.0, 500.0, key="adv_machine_capex"
+            )
+            margin_per_unit = st.number_input(
+                "Contribution margin per good unit (USD)", 0.0, 1000000.0,
+                5.0, 0.5, key="adv_contribution"
+            )
+        with e2:
+            install_pct = st.number_input(
+                "Installation cost (% of machine purchase price)", 0.0, 300.0,
+                10.0, 1.0, key="adv_install"
+            )
+            annual_maint = st.number_input(
+                "Maintenance cost per machine (USD/year)", 0.0, 100000000.0,
+                500.0, 50.0, key="adv_maintenance"
+            )
+        with e3:
+            operating_days = st.number_input(
+                "Operating days per year", 1, 366, 250, 1, key="adv_days"
+            )
+            horizon = st.number_input(
+                "Investment horizon (years)", 1, 30, 5, 1, key="adv_horizon"
+            )
+            discount_pct = st.number_input(
+                "Discount rate (%/year)", 0.0, 100.0, 8.0, 1.0,
+                key="adv_discount"
+            )
+        economic = evaluate_economics(
+            baseline, result, stages, configured,
+            capital_per_machine_usd=machine_capex,
+            installation_fraction=install_pct / 100,
+            annual_maintenance_per_machine_usd=annual_maint,
+            margin_per_good_unit_usd=margin_per_unit,
+            electricity_tariff_usd_kwh=usd_tariff,
+            operating_days=int(operating_days),
+            analysis_years=int(horizon),
+            discount_rate=discount_pct / 100,
+        )
+        rate = fx_rates.per_usd[currency]
+        ec1, ec2, ec3 = st.columns(3)
+        ec1.metric("Additional machine investment",
+                   format_money(economic.investment_usd * rate, currency))
+        ec2.metric("Annual net benefit",
+                   format_money(economic.annual_net_benefit_usd * rate, currency))
+        ec3.metric("Net present value",
+                   format_money(economic.npv_usd * rate, currency))
+        st.metric("Simple payback",
+                  f"{economic.simple_payback_years:.2f} years"
+                  if economic.simple_payback_years is not None else "Not applicable")
+        st.dataframe(pd.DataFrame([
+            {"Indicator": "Annual change in finished good units",
+             "Value": economic.annual_output_delta, "Unit": "units/year"},
+            {"Indicator": "Annual change in electricity expense",
+             "Value": economic.annual_electricity_delta_usd * rate,
+             "Unit": currency + "/year"},
+            {"Indicator": "Annual change in equipment maintenance",
+             "Value": economic.annual_maintenance_delta_usd * rate,
+             "Unit": currency + "/year"},
+        ]), hide_index=True, use_container_width=True)
+        st.caption(
+            "NPV discounts constant nominal annual cash flows. It excludes taxes, "
+            "depreciation, financing, disposal proceeds, installation downtime and "
+            "machine-specific procurement constraints. Positive NPV under assumed "
+            "values does not establish a real investment case."
+        )
+
+    with material_tab:
+        st.markdown("#### Material throughput, waste and indicative embodied emissions")
+        m1, m2 = st.columns(2)
+        with m1:
+            material_mass = st.number_input(
+                "Material mass per input part (kg)", 0.001, 1000000.0, 1.0, .1,
+                key="adv_material_mass"
+            )
+            virgin_factor = st.number_input(
+                "Virgin material emissions factor (kg CO₂e/kg)", 0.0, 1000.0,
+                2.0, .1, key="adv_material_factor"
+            )
+        with m2:
+            recovery_fraction = st.slider(
+                "Share of scrap recovered (%)", 0, 100, 50, 1,
+                key="adv_recovery_fraction"
+            )
+            recovery_credit = st.number_input(
+                "Potential recovery credit (kg CO₂e/kg)", 0.0,
+                float(virgin_factor), min(.5, float(virgin_factor)),
+                .1, key="adv_recovery_credit"
+            )
+        material_assumptions = MaterialAssumptions(
+            material_mass, virgin_factor, recovery_fraction / 100, recovery_credit
+        )
+        material_base = assess_materials(baseline, material_assumptions)
+        material_selected = assess_materials(result, material_assumptions)
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Selected scrap", f"{material_selected.scrap_kg:,.1f} kg/day")
+        mc2.metric("Unrecovered scrap",
+                   f"{material_selected.unrecovered_kg:,.1f} kg/day")
+        mc3.metric("Selected net material emissions",
+                   f"{material_selected.net_material_kgco2e:,.1f} kg CO₂e/day")
+        st.dataframe(pd.DataFrame([
+            {
+                "Scenario": label,
+                "Input material (kg/day)": analysis.input_material_kg,
+                "Scrap (kg/day)": analysis.scrap_kg,
+                "Recovered (kg/day)": analysis.recovered_kg,
+                "Gross embodied CO₂e (kg/day)": analysis.gross_embodied_kgco2e,
+                "Potential recovery credit (kg/day CO₂e)": analysis.potential_recovery_credit_kgco2e,
+                "Combined operational + net material (kg CO₂e/day)":
+                    analysis.combined_operational_and_material_kgco2e,
+            } for label, analysis in (
+                ("Baseline", material_base), ("Selected", material_selected)
+            )
+        ]), hide_index=True, use_container_width=True)
+        st.caption(
+            "Constant part mass is assumed through all stages. This is a simplified "
+            "material balance, not a full lifecycle assessment. Recovered material "
+            "only earns the specified **hypothetical** displacement credit; no "
+            "measured carbon savings are implied."
+        )
+
+    with risk_tab:
+        st.markdown("#### Monte Carlo throughput uncertainty")
+        st.caption(
+            "Independent, clipped-normal daily variations in uptime, cycle time "
+            "and stage yield; not an event-based breakdown/repair simulation. "
+            "Probabilities are conditional on the assumptions you enter."
+        )
+        u1, u2, u3 = st.columns(3)
+        with u1:
+            draws = st.number_input(
+                "Random scenarios", 50, 5000, 500, 50, key="adv_draws"
+            )
+            rng_seed = st.number_input(
+                "Reproducibility seed", 0, 9999999, 42, 1, key="adv_seed"
+            )
+        with u2:
+            availability_sd = st.slider(
+                "Availability standard deviation (percentage points)", 0.0, 30.0,
+                3.0, .5, key="adv_uptime_std"
+            )
+            cycle_sd = st.slider(
+                "Cycle-time standard deviation (%)", 0.0, 30.0,
+                5.0, .5, key="adv_cycle_std"
+            )
+        with u3:
+            yield_sd = st.slider(
+                "Yield standard deviation (percentage points)", 0.0, 30.0,
+                1.0, .5, key="adv_yield_std"
+            )
+            if optimum.objective == "min_energy_for_target":
+                initial_target = float(optimum.target_units)
+            else:
+                initial_target = float(conditions.demand_units)
+            st.caption(f"Target threshold: {initial_target:,.1f} good units/day")
+
+        @st.cache_data(show_spinner=False)
+        def run_sample_cached(stages_in, conditions_in, modes_in, n, seed_in,
+                              uptime_in, cycle_in, yield_in, target_in):
+            return monte_carlo_throughput(
+                stages_in, conditions_in, modes_in,
+                samples=n, seed=seed_in,
+                availability_sd_pp=uptime_in,
+                cycle_time_sd_pct=cycle_in,
+                yield_sd_pp=yield_in, target_good_units=target_in,
+            )
+
+        with st.spinner("Sampling daily production scenarios..."):
+            risk_base = run_sample_cached(
+                stages, conditions, tuple("Standard" for _ in stages),
+                int(draws), int(rng_seed), availability_sd, cycle_sd,
+                yield_sd, initial_target
+            )
+            risk_selected = run_sample_cached(
+                configured, conditions, selected_modes, int(draws), int(rng_seed),
+                availability_sd, cycle_sd, yield_sd, initial_target
+            )
+        rc1, rc2 = st.columns(2)
+        rc1.metric("Baseline probability of target",
+                   f"{risk_base.target_meeting_probability:.1%}")
+        rc2.metric("Selected probability of target",
+                   f"{risk_selected.target_meeting_probability:.1%}")
+        st.dataframe(pd.DataFrame([
+            {
+                "Scenario": label,
+                "Mean output (units/day)": analysis.mean_good_units,
+                "5th percentile": analysis.p05_good_units,
+                "Median": analysis.median_good_units,
+                "95th percentile": analysis.p95_good_units,
+                "Mean energy (kWh/day)": analysis.mean_energy_kwh,
+            } for label, analysis in (
+                ("Baseline", risk_base), ("Selected", risk_selected)
+            )
+        ]), hide_index=True, use_container_width=True)
+        histogram = go.Figure()
+        histogram.add_trace(go.Histogram(
+            x=risk_base.good_units_samples, name="Baseline", opacity=.65))
+        histogram.add_trace(go.Histogram(
+            x=risk_selected.good_units_samples, name="Selected", opacity=.65))
+        histogram.add_vline(x=initial_target, line_dash="dash", line_color="#f3a85d")
+        histogram.update_layout(
+            barmode="overlay", xaxis_title="Good units/day",
+            yaxis_title="Number of simulations",
+        )
+        st.plotly_chart(histogram, use_container_width=True)
+        st.caption(
+            "The 5th–95th percentiles describe the simulated outcome spread, "
+            "not a statistical confidence interval for a calibrated physical plant."
+        )
+
+    with report_tab:
+        st.markdown("#### Downloadable engineering case study")
+        st.write(
+            "The PDF includes the deterministic comparison, simplified economic "
+            "and material assessments, Monte Carlo summary, FX reference date, "
+            "and modelling limitations."
+        )
+        assumptions_text = (
+            f"Illustrative assumptions: USD {machine_capex:,.0f} per new machine; "
+            f"{install_pct:.1f}% installation; USD {annual_maint:,.0f}/machine/year "
+            f"maintenance; USD {margin_per_unit:.2f}/unit contribution margin; "
+            f"{operating_days} days/year; {horizon} years; "
+            f"{discount_pct:.1f}% discount rate."
+        )
+        pdf = build_pdf_report(
+            baseline=baseline, selected=result, economics=economic,
+            baseline_material=material_base,
+            selected_material=material_selected,
+            material_assumptions=material_assumptions,
+            baseline_uncertainty=risk_base,
+            selected_uncertainty=risk_selected,
+            currency=currency, usd_to_currency=rate,
+            fx_updated=fx_rates.as_of, usd_tariff=usd_tariff,
+            demand=conditions.demand_units,
+            operating_hours=conditions.shift_hours,
+            assumptions_description=assumptions_text,
+        )
+        st.download_button(
+            "📄 Download engineering case study (PDF)",
+            data=pdf, file_name="SustainFab_engineering_case_study.pdf",
+            mime="application/pdf", use_container_width=True,
+        )
+        advanced_export = {
+            "note": "Illustrative assumed inputs; not calibrated industrial findings.",
+            "baseline": asdict(baseline), "selected": asdict(result),
+            "economic_assumptions": assumptions_text,
+            "economic_results_usd": asdict(economic),
+            "material_assumptions": asdict(material_assumptions),
+            "baseline_material": asdict(material_base),
+            "selected_material": asdict(material_selected),
+            "uncertainty_assumptions": {
+                "draws": int(draws), "seed": int(rng_seed),
+                "availability_sd_pp": availability_sd,
+                "cycle_time_sd_pct": cycle_sd, "yield_sd_pp": yield_sd,
+                "target_good_units": initial_target,
+            },
+            "uncertainty_baseline": {
+                k: v for k, v in asdict(risk_base).items()
+                if k != "good_units_samples"
+            },
+            "uncertainty_selected": {
+                k: v for k, v in asdict(risk_selected).items()
+                if k != "good_units_samples"
+            },
+            "currency": currency,
+            "fx_per_usd": fx_rates.per_usd,
+            "fx_date": fx_rates.as_of,
+            "fx_source": fx_rates.provider,
+        }
+        st.download_button(
+            "Download advanced results (JSON)",
+            data=json.dumps(advanced_export, indent=2),
+            file_name="SustainFab_advanced_analysis.json",
+            mime="application/json", use_container_width=True,
+        )
