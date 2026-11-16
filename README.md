@@ -20,6 +20,29 @@ A self-contained, interactive engineering project that models a **serial manufac
 - **Reproducible exports:** input CSV, performance comparison CSV, demand sensitivity CSV and complete results JSON.
 - **Automated testing:** verification of throughput, stage yields, electrical energy, invalid inputs, infeasible constraints, and optimizer correctness against an independent brute-force benchmark.
 
+## Currency conversion and reference rates
+
+SustainFab keeps the **input electricity tariff in USD/kWh**, independent of
+the cost display currency. Choosing USD ($), EUR (€), GBP (£), or NGN (₦)
+converts the tariff and calculated electricity-only costs consistently; it
+**does not** alter electricity consumption, production throughput, or CO₂ emissions.
+
+The app fetches daily USD-based FX quotations from the
+[ExchangeRate-API open-access endpoint](https://www.exchangerate-api.com/docs/free)
+and caches them for 24 hours. It shows the provider and the last rate-update
+date, and credits the service as required by its attribution policy.
+If the service is unavailable or returns stale data, the dashboard shows a
+visible **dated fallback**, using rates published by the West African Monetary
+Agency on [16 November 2026](https://exrates.amao-wama.org/daily-rates?start=2026-11-16&end=2026-11-16&format=pdf):
+1 USD = 0.904817 EUR, 0.755662 GBP, and 1,355.381500 NGN.
+These fixed fallback values **are not live quotations** on subsequent dates.
+
+The costs are illustrative USD-based electricity-cost assumptions converted
+to the selected display currency, **not verified local electricity tariffs**.
+For a local tariff, first convert it to its USD/kWh equivalent using the
+currently shown reference rate. JSON exports include the tariff assumption,
+rate table, FX source, currency and update date for auditability.
+
 ## 1. Launch locally
 
 Prerequisites: Python 3.11 or 3.12.
@@ -80,7 +103,7 @@ The app is designed to run without API keys, database connections, uploaded secr
 | Idle power | kW/machine | Power while available but not processing |
 | Scheduled hours | h/day | Daily production window |
 | Good-unit demand | units/day | Daily demand for finished **good** products |
-| Electricity tariff | selected currency/kWh | User-provided cost assumption |
+| Electricity tariff | USD/kWh | User-provided reference assumption, converted to the selected display currency |
 | Emission factor | kg CO₂/kWh | User-provided operational grid factor |
 
 The included `data/example_line.csv` is a **fully synthetic illustration**; no figures claim to describe a real industrial facility. Replace all inputs with justified measurements for meaningful engineering interpretation.

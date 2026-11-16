@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from sustainfab.model import OperatingConditions, Stage, simulate_line
+from sustainfab.currency import format_money, get_usd_exchange_rates, tariff_in_currency
 from sustainfab.planning import required_shift_hours
 from sustainfab.optimizer import StageChoice, apply_choices, optimize_line
 
@@ -139,8 +140,29 @@ with st.sidebar:
     demand = st.number_input("Demand for good units/day", min_value=0, max_value=1_000_000,
                              value=400, step=10)
     currency = st.selectbox("Cost display currency", ["USD", "NGN", "EUR", "GBP"], index=0)
-    tariff = st.number_input(f"Electricity tariff ({currency}/kWh)", 0.0, 1_000_000.0, 0.15, 0.01,
-                             help="User-supplied assumption; no actual electricity tariff is claimed.")
+    # Input tariff stays in USD/kWh; selecting a currency changes only its
+    # equivalent value, so no accidental relabeling of the electricity price.
+    usd_tariff = st.number_input(
+        "Reference electricity tariff (USD/kWh)", min_value=0.0,
+        max_value=1_000_000.0, value=0.15, step=0.01, format="%.3f",
+        help="Illustrative electricity price in USD/kWh; displayed costs are converted with the listed FX rate.",
+    )
+    @st.cache_data(ttl=86400, show_spinner=False)
+    def cached_exchange_rates():
+        return get_usd_exchange_rates()
+
+    fx_rates = cached_exchange_rates()
+    tariff = tariff_in_currency(float(usd_tariff), currency, fx_rates)
+    st.caption(
+        f"Converted tariff: {format_money(tariff, currency, 4)}/kWh · "
+        f"1 USD = {format_money(fx_rates.per_usd[currency], currency, 4)}"
+    )
+    if fx_rates.fallback:
+        st.warning(f"Offline FX fallback: dated {fx_rates.as_of}; not a live quote.", icon="⚠️")
+    else:
+        st.caption(f"Reference rates updated {fx_rates.as_of}")
+    st.markdown(f"[FX source: {fx_rates.provider}]({fx_rates.source_url})")
+    st.caption("Indicative reference rates; not a bank's exchange quote.")
     factor = st.number_input("Grid emissions factor (kg CO₂/kWh)", 0.0, 10.0, 0.45, 0.01,
                              help="Illustrative default. Replace with a justified local or supplier factor.")
     st.divider()
@@ -214,7 +236,7 @@ with overview:
     top3.metric("Bottleneck stage", baseline.bottleneck_stage)
     bottom1, bottom2, bottom3 = st.columns(3)
     bottom1.metric("Electrical energy", f"{baseline.total_energy_kwh:,.1f} kWh/day")
-    bottom2.metric("Electricity cost", f"{baseline.electricity_cost:,.2f} {currency}/day")
+    bottom2.metric(f"Electricity cost ({currency}/day)", format_money(baseline.electricity_cost, currency))
     bottom3.metric("Operational CO₂", f"{baseline.emissions_kg:,.1f} kg/day")
 
     left, right = st.columns(2)
@@ -336,6 +358,13 @@ with optimization:
         "number_of_candidates": optimum.evaluated_candidates,
         "operating_conditions": asdict(conditions),
         "currency": currency,
+        "electricity_tariff_reference": {"amount": float(usd_tariff), "currency": "USD", "unit": "kWh"},
+        "exchange_rates": {
+            "base": "USD", "per_usd": fx_rates.per_usd,
+            "as_of": fx_rates.as_of, "provider": fx_rates.provider,
+            "source_url": fx_rates.source_url, "fallback": fx_rates.fallback,
+        },
+        "electricity_cost_display_currency": currency,
         "input_stages": [asdict(s) for s in stages],
         "selected_configuration": [asdict(s) for s in optimum.choices],
         "baseline": asdict(baseline),
@@ -456,7 +485,10 @@ with methodology:
         Standard by ×1.00 and ×1.00; Boost by ×0.82 and ×1.32. No claims are made that these coefficients
         represent actual machines. Recalibrate before real-world decisions.
 
-        **Costs and carbon.** Electricity cost = kWh × tariff. Operational CO₂ = kWh × grid factor.
+        **Costs and carbon.** Electricity cost = kWh × tariff converted from its USD/kWh
+        reference to the selected display currency with a dated exchange rate.
+        FX source details are included in the downloadable JSON.
+        Operational CO₂ = kWh × grid factor.
         No embodied/material emissions or equipment acquisition costs are included.
 
         **Shift planning.** Required scheduled hours are the desired good units divided by the smallest downstream-yield-adjusted stage capacity per scheduled hour. This does not sequence orders.
